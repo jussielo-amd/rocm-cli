@@ -8,21 +8,17 @@
 //! `DeterministicEngineRow`) and its leaf helpers — tool-call argument
 //! normalization and display labels, deterministic tool-output parsing, and
 //! the MCP-result/loopback-port/service-running-state helpers. `main.rs`
-//! constructs `ChatRocmCommandAction` and `CommandCapture` directly; it only
-//! receives `DeterministicModelRecipe` as a parameter and
-//! `DeterministicServiceRow`/`DeterministicEngineRow` as return values
+//! constructs `ChatRocmCommandAction` and `CommandCapture` directly;
+//! receives `DeterministicModelRecipe` both as a return value and as a
+//! parameter, and receives
+//! `DeterministicServiceRow`/`DeterministicEngineRow` only as return values
 //! (neither of the latter two is ever named there directly). The helper
 //! functions are `pub(crate)` and called from `main.rs` via qualified
 //! `chat::` paths, except for a handful of private internals used only
 //! within this file; nothing here calls back into `main.rs`.
 //!
 //! Full domain extraction, mirroring `providers.rs`. Phase 6d (ROCMAI-88) of
-//! the `main.rs` modularization (see `docs/architecture.md`), split across
-//! three PRs given the cluster's size: this module's current contents are
-//! part 1's slice. The cluster's orchestration bodies
-//! (`run_internal_mcp_call`, the `validate_chat_*` family,
-//! `deterministic_rocm_tool_summary`) and the `dispatch()`/`dash_seam.rs`
-//! call-site qualification are still at the crate root.
+//! the `main.rs` modularization (see `docs/architecture.md`).
 
 use crate::providers;
 use anyhow::{Context, Result, bail};
@@ -751,15 +747,20 @@ vllm: not_installed
 
     #[test]
     fn parse_deterministic_service_rows_reads_inline_key_value_form() {
+        // status=starting derives running_state="starting" on its own, so
+        // pinning running_state to a different explicit value ("running")
+        // proves the inline key is actually read rather than passing on the
+        // derivation regardless.
         let rows = parse_deterministic_service_rows(
-            "  - service_id=svc-1 engine=vllm model=qwen status=ready running_state=running endpoint=127.0.0.1:8000",
+            "  - service_id=svc-1 engine=vllm model=qwen status=starting running_state=running endpoint=127.0.0.1:8000",
         );
         assert_eq!(rows.len(), 1);
         // service_id is not asserted here: see
         // parse_deterministic_service_rows_reads_inline_service_id_rocmai_577
         // below for why.
         assert_eq!(rows[0].engine, "vllm");
-        assert_eq!(rows[0].status, "ready");
+        assert_eq!(rows[0].model, "qwen");
+        assert_eq!(rows[0].status, "starting");
         assert_eq!(rows[0].running_state, "running");
         assert_eq!(rows[0].endpoint, "127.0.0.1:8000");
     }
@@ -789,7 +790,10 @@ endpoint: 127.0.0.1:8001
         );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].service_id, "svc-2");
+        assert_eq!(rows[0].engine, "lemonade");
+        assert_eq!(rows[0].model, "qwen");
         assert_eq!(rows[0].running_state, "starting");
+        assert_eq!(rows[0].endpoint, "127.0.0.1:8001");
     }
 
     #[test]
